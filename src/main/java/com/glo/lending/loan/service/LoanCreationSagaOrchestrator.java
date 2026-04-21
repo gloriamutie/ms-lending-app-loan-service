@@ -23,10 +23,8 @@ public class LoanCreationSagaOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(LoanCreationSagaOrchestrator.class);
 
     private final LoanRepository loanRepository;
-    @Value("${app.service.customer-url}")
     private final LoanEventPublisher eventPublisher;
-    @Value("${app.service.customer-url}")
-    String customerServiceUrl;
+    String customerServiceUrl = "http://localhost:8082"; // Default URL, should be overridden by config
     private final WebClient webClient = WebClient.builder().baseUrl(customerServiceUrl).build();
 
 
