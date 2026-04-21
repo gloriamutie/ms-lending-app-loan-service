@@ -5,6 +5,7 @@ package com.glo.lending.loan.model.enums;
  */
 public enum LoanState {
     OPEN,
+    CLOSED,
     CANCELLED,
     OVERDUE,
     WRITTEN_OFF

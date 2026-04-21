@@ -3,6 +3,7 @@ package com.glo.lending.loan.model.dto;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -13,6 +14,7 @@ import java.util.UUID;
 // * @param amount           repayment amount
 // * @param paymentReference external payment reference (e.g., M-Pesa code)
 // */
+@Data
 public class RepaymentRequest {
         @NotNull(message = "Loan ID is required")
         UUID loanId;

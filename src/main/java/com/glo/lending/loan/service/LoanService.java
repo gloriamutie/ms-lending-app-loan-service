@@ -46,28 +46,29 @@ public class LoanService {
      * @return a {@link Mono} emitting the created loan response
      */
     public Mono<LoanResponse> createLoan(final CreateLoanRequest request) {
-        log.info("Creating loan: customerId={}, idempotencyKey={}", request.customerId(), request.idempotencyKey());
+        log.info("Creating loan: customerId={}, idempotencyKey={}", request.getCustomerId(), request.getIdempotencyKey());
+        Loan loan = Loan.builder()
+                .customerId(request.getCustomerId())
+                .productId(request.getProductId())
+                .principalAmount(request.getPrincipalAmount())
+                .outstandingBalance(request.getPrincipalAmount())
+                .totalFees(BigDecimal.ZERO)
+                .loanType(request.getLoanType())
+                .state(LoanState.OPEN)
+                .originationDate(LocalDate.now())
+                .dueDate(calculateDueDate(request.getTenureValue(), request.getTenureType()))
+                .billingCycleId(request.getBillingCycleId())
+                .tenureValue(request.getTenureValue())
+                .tenureType(request.getTenureType())
+                .idempotencyKey(request.getIdempotencyKey())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
 
-        final Loan loan = new Loan();
-        loan.setCustomerId(request.customerId());
-        loan.setProductId(request.productId());
-        loan.setPrincipalAmount(request.principalAmount());
-        loan.setOutstandingBalance(request.principalAmount());
-        loan.setTotalFees(BigDecimal.ZERO);
-        loan.setLoanType(request.loanType());
-        loan.setState(LoanState.OPEN);
-        loan.setOriginationDate(LocalDate.now());
-        loan.setDueDate(calculateDueDate(request.tenureValue(), request.tenureType()));
-        loan.setBillingCycleId(request.billingCycleId());
-        loan.setTenureValue(request.tenureValue());
-        loan.setTenureType(request.tenureType());
-        loan.setIdempotencyKey(request.idempotencyKey());
-        loan.setCreatedAt(LocalDateTime.now());
-        loan.setUpdatedAt(LocalDateTime.now());
 
         return sagaOrchestrator.executeSaga(loan)
                 .flatMap(savedLoan -> {
-                    if (request.loanType() == LoanType.INSTALLMENT) {
+                    if (request.getLoanType() == LoanType.INSTALLMENT) {
                         return createInstallments(savedLoan).thenReturn(savedLoan);
                     }
                     return Mono.just(savedLoan);
@@ -96,23 +97,23 @@ public class LoanService {
      * Processes a repayment against a loan.
      */
     public Mono<RepaymentResponse> makeRepayment(final RepaymentRequest request) {
-        log.info("Processing repayment: loanId={}, amount={}", request.loanId(), request.amount());
+        log.info("Processing repayment: loanId={}, amount={}", request.getLoanId(), request.getAmount());
 
-        return loanRepository.findById(request.loanId())
-                .switchIfEmpty(Mono.error(new LoanNotFoundException(request.loanId())))
+        return loanRepository.findById(request.getLoanId())
+                .switchIfEmpty(Mono.error(new LoanNotFoundException(request.getLoanId())))
                 .flatMap(loan -> {
                     if (loan.getState() == LoanState.CLOSED || loan.getState() == LoanState.CANCELLED) {
                         return Mono.error(new IllegalStateException("Cannot repay a " + loan.getState() + " loan"));
                     }
 
-                    final LoanRepayment repayment = new LoanRepayment();
+                    LoanRepayment repayment = new LoanRepayment();
                     repayment.setLoanId(loan.getId());
-                    repayment.setInstallmentId(request.installmentId());
-                    repayment.setAmount(request.amount());
+                    repayment.setInstallmentId(request.getInstallmentId());
+                    repayment.setAmount(request.getAmount());
                     repayment.setPaymentDate(LocalDateTime.now());
-                    repayment.setPaymentReference(request.paymentReference());
+                    repayment.setPaymentReference(request.getPaymentReference());
 
-                    loan.setOutstandingBalance(loan.getOutstandingBalance().subtract(request.amount()));
+                    loan.setOutstandingBalance(loan.getOutstandingBalance().subtract(request.getAmount()));
                     loan.setUpdatedAt(LocalDateTime.now());
 
                     if (loan.getOutstandingBalance().compareTo(BigDecimal.ZERO) <= 0) {
@@ -125,7 +126,7 @@ public class LoanService {
                             .flatMap(saved -> eventPublisher.publishLoanEvent(loan.getCustomerId(), Map.of(
                                     "eventType", loan.getState() == LoanState.CLOSED ? "LOAN_CLOSED" : "REPAYMENT_RECEIVED",
                                     "loanId", loan.getId(), "customerId", loan.getCustomerId(),
-                                    "amount", request.amount()
+                                    "amount", request.getAmount()
                             )).thenReturn(saved));
                 })
                 .map(LoanMapper::toRepaymentResponse)

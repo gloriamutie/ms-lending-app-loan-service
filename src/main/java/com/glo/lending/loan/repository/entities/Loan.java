@@ -2,6 +2,7 @@ package com.glo.lending.loan.repository.entities;
 
 import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.model.enums.LoanType;
+import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
@@ -14,7 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-
+@Builder
 @Data
 @Table("loans")
 public class Loan {
