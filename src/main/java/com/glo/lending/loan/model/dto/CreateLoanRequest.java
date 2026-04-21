@@ -5,47 +5,36 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/**
- * Request DTO for creating/disbursing a new loan.
- *
- * @param idempotencyKey  client-generated unique key to prevent duplicate loan creation
- * @param customerId      the borrowing customer
- * @param productId       the loan product to use
- * @param principalAmount the loan principal
- * @param loanType        LUMP_SUM or INSTALLMENT
- * @param tenureValue     numeric tenure value
- * @param tenureType      DAYS or MONTHS
- * @param billingCycleId  optional billing cycle for consolidated billing
- */
-public record CreateLoanRequest(
+@Data
+public class CreateLoanRequest {
         @NotBlank(message = "Idempotency key is required")
-        String idempotencyKey,
+        String idempotencyKey;
 
         @NotNull(message = "Customer ID is required")
-        UUID customerId,
+        UUID customerId;
 
         @NotNull(message = "Product ID is required")
-        UUID productId,
+        UUID productId;
 
         @NotNull(message = "Principal amount is required")
         @DecimalMin(value = "0.01", message = "Principal must be greater than zero")
-        BigDecimal principalAmount,
+        BigDecimal principalAmount;
 
         @NotNull(message = "Loan type is required")
-        LoanType loanType,
+        LoanType loanType;
 
         @NotNull(message = "Tenure value is required")
         @Min(value = 1, message = "Tenure must be at least 1")
-        Integer tenureValue,
+        Integer tenureValue;
 
         @NotBlank(message = "Tenure type is required")
-        String tenureType,
+        String tenureType;
 
-        UUID billingCycleId
-) {
+        UUID billingCycleId;
 }
 

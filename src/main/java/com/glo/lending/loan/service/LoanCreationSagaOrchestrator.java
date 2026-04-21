@@ -4,6 +4,7 @@ import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.model.enums.SagaStatus;
 import com.glo.lending.loan.repository.entities.Loan;
 import com.glo.lending.loan.repository.repo.LoanRepository;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,24 +16,18 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.util.Map;
 
+@RequiredArgsConstructor
 @Service
 public class LoanCreationSagaOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(LoanCreationSagaOrchestrator.class);
 
     private final LoanRepository loanRepository;
+    @Value("${app.service.customer-url}")
     private final LoanEventPublisher eventPublisher;
-    private final WebClient customerServiceClient;
-
-    public LoanCreationSagaOrchestrator(final LoanRepository loanRepository,
-                                         final LoanEventPublisher eventPublisher,
-                                         @Value("${app.service.customer-url}") final String customerServiceUrl) {
-        this.loanRepository = loanRepository;
-        this.eventPublisher = eventPublisher;
-        this.customerServiceClient = WebClient.builder()
-                .baseUrl(customerServiceUrl)
-                .build();
-    }
+    @Value("${app.service.customer-url}")
+    String customerServiceUrl;
+    private final WebClient webClient = WebClient.builder().baseUrl(customerServiceUrl).build();
 
 
     public Mono<Loan> executeSaga(final Loan loan) {
@@ -100,7 +95,7 @@ public class LoanCreationSagaOrchestrator {
         log.info("Saga STEP 2: Reserving customer limit. loanId={}, customerId={}, amount={}",
                 loan.getId(), loan.getCustomerId(), loan.getPrincipalAmount());
 
-        return customerServiceClient.put()
+        return webClient.put()
                 .uri("/api/v1/customers/{customerId}/loan-limits/reserve", loan.getCustomerId())
                 .bodyValue(Map.of(
                         "amount", loan.getPrincipalAmount(),
@@ -170,7 +165,7 @@ public class LoanCreationSagaOrchestrator {
         log.info("Compensation: Releasing customer limit. loanId={}, customerId={}, amount={}",
                 loan.getId(), loan.getCustomerId(), loan.getPrincipalAmount());
 
-        return customerServiceClient.put()
+        return webClient.put()
                 .uri("/api/v1/customers/{customerId}/loan-limits/release", loan.getCustomerId())
                 .bodyValue(Map.of(
                         "amount", loan.getPrincipalAmount(),

@@ -9,13 +9,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/**
- * Tracks fees that have been applied to a specific loan instance.
- * <p>
- * Distinct from product-level fee configuration; this records actual
- * fee charges on active loans (e.g., late fees triggered by sweep jobs).
- * </p>
- */
 @Data
 @Table("loan_fees")
 public class LoanFee {

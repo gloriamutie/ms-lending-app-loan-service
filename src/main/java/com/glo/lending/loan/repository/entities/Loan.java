@@ -14,13 +14,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * Represents a loan issued to a customer under a specific product.
- * <p>
- * Tracks the principal, outstanding balance, state transitions,
- * and links to billing cycles for consolidated repayments.
- * </p>
- */
+
 @Data
 @Table("loans")
 public class Loan {

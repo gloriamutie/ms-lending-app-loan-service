@@ -11,13 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * Represents a single installment within an installment-type loan.
- * <p>
- * Each installment has its own due date, amount, and payment state,
- * allowing granular tracking of partial and full payments.
- * </p>
- */
+
 @Data
 @Table("loan_installments")
 public class LoanInstallment {
