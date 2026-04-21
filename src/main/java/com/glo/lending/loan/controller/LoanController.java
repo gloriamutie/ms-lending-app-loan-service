@@ -27,7 +27,7 @@ public class LoanController {
 
     @PostMapping
     public Mono<ResponseEntity<LoanResponse>> createLoan(@Valid @RequestBody final CreateLoanRequest request) {
-        log.info("POST /api/v1/loans — idempotencyKey={}", request.idempotencyKey());
+        log.info("POST /api/v1/loans — idempotencyKey={}", request.getIdempotencyKey());
         return loanService.createLoan(request).map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
     }
 
@@ -45,7 +45,7 @@ public class LoanController {
 
     @PostMapping("/repayments")
     public Mono<ResponseEntity<RepaymentResponse>> makeRepayment(@Valid @RequestBody final RepaymentRequest request) {
-        log.info("POST /api/v1/loans/repayments — loanId={}", request.loanId());
+        log.info("POST /api/v1/loans/repayments — loanId={}", request.getLoanId());
         return loanService.makeRepayment(request).map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
     }
 
