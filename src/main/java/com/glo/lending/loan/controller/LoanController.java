@@ -2,6 +2,7 @@ package com.glo.lending.loan.controller;
 
 import com.glo.lending.loan.model.dto.*;
 import com.glo.lending.loan.service.LoanService;
+import com.glo.lending.loan.service.serviceImpl.LoanServiceImpl;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;

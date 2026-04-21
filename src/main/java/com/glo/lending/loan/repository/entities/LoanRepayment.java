@@ -1,5 +1,6 @@
 package com.glo.lending.loan.repository.entities;
 
+import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;

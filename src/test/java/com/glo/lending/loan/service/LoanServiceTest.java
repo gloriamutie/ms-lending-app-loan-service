@@ -1,14 +1,16 @@
 package com.glo.lending.loan.service;
 
+import com.glo.lending.loan.components.LoanCreationSagaOrchestrator;
+import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.exception.LoanNotFoundException;
 import com.glo.lending.loan.model.dto.CreateLoanRequest;
 import com.glo.lending.loan.model.dto.RepaymentRequest;
 import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.model.enums.LoanType;
 import com.glo.lending.loan.repository.entities.Loan;
-import com.glo.lending.loan.repository.entities.LoanInstallment;
 import com.glo.lending.loan.repository.entities.LoanRepayment;
 import com.glo.lending.loan.repository.repo.*;
+import com.glo.lending.loan.service.serviceImpl.LoanServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,7 +44,7 @@ class LoanServiceTest {
     @Mock private LoanCreationSagaOrchestrator sagaOrchestrator;
     @Mock private LoanEventPublisher eventPublisher;
 
-    @InjectMocks private LoanService loanService;
+    @InjectMocks private LoanServiceImpl loanService;
 
     private Loan loan;
     private UUID loanId;

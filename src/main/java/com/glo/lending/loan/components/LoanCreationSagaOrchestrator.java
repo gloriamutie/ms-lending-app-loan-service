@@ -1,5 +1,6 @@
-package com.glo.lending.loan.service;
+package com.glo.lending.loan.components;
 
+import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.model.enums.SagaStatus;
 import com.glo.lending.loan.repository.entities.Loan;
@@ -7,7 +8,7 @@ import com.glo.lending.loan.repository.repo.LoanRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -17,7 +18,7 @@ import java.time.Duration;
 import java.util.Map;
 
 @RequiredArgsConstructor
-@Service
+@Component
 public class LoanCreationSagaOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(LoanCreationSagaOrchestrator.class);

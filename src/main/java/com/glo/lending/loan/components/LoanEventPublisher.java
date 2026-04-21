@@ -1,8 +1,9 @@
-package com.glo.lending.loan.service;
+package com.glo.lending.loan.components;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -18,7 +19,7 @@ import java.util.UUID;
  * (e.g., Notification Service).
  * </p>
  */
-@Service
+@Component
 public class LoanEventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(LoanEventPublisher.class);
