@@ -46,7 +46,7 @@ public class LoanServiceImpl implements LoanService {
 
      // Creates and persists a new loan, then publishes a LOAN_CREATED event.
     @Override
-    public Mono<LoanResponse> createLoan(final CreateLoanRequest request, final String idempotencyKeyHeader) {
+    public Mono<LoanResponse> createLoan( CreateLoanRequest request,  String idempotencyKeyHeader) {
         final String idempotencyKey = idempotencyKeyHeader.trim();
         log.info("Creating loan: customerId={}, idempotencyKey={}", request.getCustomerId(), idempotencyKey);
 
@@ -59,8 +59,9 @@ public class LoanServiceImpl implements LoanService {
                         return getLoanInstallments(result.loan());
                     }
 
-                    // After transaction commits, publish events asynchronously
-                    return getLoanInstallments(result.loan()).doOnNext(response -> utilities.publishEvent(
+                    // After transaction commits, publish events with guaranteed delivery
+                    return getLoanInstallments(result.loan()).flatMap(response ->
+                            utilities.publishEventReactive(
                                     result.loan().getCustomerId(), "LOAN_CREATED",
                                     Map.of(
                                             "eventType", "LOAN_CREATED",
@@ -69,7 +70,7 @@ public class LoanServiceImpl implements LoanService {
                                             "loanAmount", result.loan().getPrincipalAmount(),
                                             "dueDate", result.loan().getDueDate().toString()
                                     )
-                            ));
+                            ).thenReturn(response));
                 });
     }
 
@@ -174,12 +175,12 @@ public class LoanServiceImpl implements LoanService {
                             .flatMap(savedRepayment -> loanRepository.save(loan).thenReturn(savedRepayment))
                             .as(transactionalOperator::transactional)
                             .map(LoanMapper::toRepaymentResponse)
-                            .doOnNext(r -> utilities.publishEvent(loan.getCustomerId(), repaymentEventType, Map.of(
+                            .flatMap(response -> utilities.publishEventReactive(loan.getCustomerId(), repaymentEventType, Map.of(
                                     "eventType", repaymentEventType,
                                     "loanId", loan.getId(),
                                     "customerId", loan.getCustomerId(),
                                     "amount", request.getAmount()
-                            )))
+                            )).thenReturn(response))
                             .doOnSuccess(r -> log.info("Repayment processed: id={}", r.id()));
                 });
     }
@@ -201,13 +202,13 @@ public class LoanServiceImpl implements LoanService {
                     return loanRepository.save(loan).as(transactionalOperator::transactional);
                 })
                 .flatMap(this::getLoanInstallments)
-                .doOnNext(response -> utilities.publishEvent(response.customerId(), "LOAN_CANCELLED",
+                .flatMap(response -> utilities.publishEventReactive(response.customerId(), "LOAN_CANCELLED",
                         Map.of(
                                 "eventType", "LOAN_CANCELLED",
                                 "loanId", response.id(),
                                 "customerId", response.customerId()
                         )
-                ));
+                ).thenReturn(response));
     }
 
 

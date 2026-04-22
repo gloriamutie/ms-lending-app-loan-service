@@ -14,6 +14,6 @@ public interface LoanInstallmentRepository extends ReactiveCrudRepository<LoanIn
 
     Flux<LoanInstallment> findByLoanIdOrderByInstallmentNumber(UUID loanId);
 
-    Flux<LoanInstallment> findByStateAndDueDateBefore(InstallmentState state, LocalDate date);
+    Flux<LoanInstallment> findByStateAndDueDateLessThanEqual(InstallmentState state, LocalDate date);
 }
 

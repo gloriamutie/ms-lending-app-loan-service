@@ -16,9 +16,6 @@ public class Utilities {
     private static final Logger log = LoggerFactory.getLogger(Utilities.class);
     private final LoanEventPublisher eventPublisher;
 
-    /**
-     * Publishes an event fire-and-forget style (subscribes immediately).
-     */
     public void publishEvent(final UUID customerId, final String eventType, final Map<String, Object> payload) {
         publishEventReactive(customerId, eventType, payload).subscribe();
     }

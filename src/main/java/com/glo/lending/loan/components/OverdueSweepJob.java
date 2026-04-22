@@ -18,7 +18,7 @@ public class OverdueSweepJob {
     private final OverdueSweepService sweepService;
 
 
-     //Runs on the configured cron schedule, 8 am
+     //Runs on the configured cron schedule, -> hourly
     @Scheduled(cron = "${app.sweep.cron}")
     public void sweepOverdueLoans() {
         log.info("Overdue sweep job started");

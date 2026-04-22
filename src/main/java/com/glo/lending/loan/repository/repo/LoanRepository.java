@@ -1,12 +1,11 @@
 package com.glo.lending.loan.repository.repo;
 
+import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.repository.entities.Loan;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
-import com.glo.lending.loan.model.enums.LoanState;
 
 import java.time.LocalDate;
 import java.util.UUID;
@@ -21,7 +20,7 @@ public interface LoanRepository extends ReactiveCrudRepository<Loan, UUID> {
 
     Flux<Loan> findByState(LoanState state);
 
-    Flux<Loan> findByStateAndDueDateBefore(LoanState state, LocalDate date);
+    Flux<Loan> findByStateAndDueDateLessThanEqual(LoanState state, LocalDate date);
 
     Flux<Loan> findByBillingCycleId(UUID billingCycleId);
 
@@ -34,4 +33,3 @@ public interface LoanRepository extends ReactiveCrudRepository<Loan, UUID> {
      */
     Mono<Loan> findByIdempotencyKey(String idempotencyKey);
 }
-

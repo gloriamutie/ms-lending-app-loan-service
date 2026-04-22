@@ -1,18 +1,18 @@
 # Loan Service (ms-lending-app-loan-service)
 
-Manages the loan lifecycle: creation, repayment processing, billing cycles, installments, overdue sweep jobs, and state management.
+Manages the loan lifecycle: creation, repayment processing, installments, overdue sweep jobs, and state management.
 
 ## Tech Stack
 
-| Component        | Technology                              |
-|------------------|-----------------------------------------|
-| Framework        | Spring Boot 3.4.4 / Spring WebFlux      |
-| Language         | Java 21                                 |
-| Database         | PostgreSQL (R2DBC — reactive)           |
-| Migrations       | Flyway (runs over JDBC at startup)      |
-| Event Broker     | Apache Kafka (produces `lending.loan.events`) |
-| Security         | API Key (`X-API-KEY` header)            |
-| Testing          | JUnit 5 + Mockito + StepVerifier        |
+| Component        | Technology                                    |
+|------------------|-----------------------------------------------|
+| Framework        | Spring Boot 3.4.8 / Spring WebFlux            |
+| Language         | Java 21                                       |
+| Database         | PostgreSQL (R2DBC — reactive)                 |
+| Migrations       | Flyway (runs over JDBC at startup)            |
+| Event Broker     | Apache Kafka (produces `lendingLoanEventsv2`) |
+| Security         | API Key (`X-API-KEY` header)                  |
+| Testing          | JUnit 5 + Mockito + StepVerifier              |
 
 ## Prerequisites
 
@@ -20,7 +20,6 @@ Manages the loan lifecycle: creation, repayment processing, billing cycles, inst
 - Maven 3.9+
 - PostgreSQL 15+
 - Apache Kafka 3.x+
-- Customer Service running on `localhost:8082`
 - Create database: `CREATE DATABASE lending_loan_db;`
 
 ## Getting Started
@@ -38,41 +37,46 @@ mvn spring-boot:run
 mvn clean test
 ```
 
-The service starts on **port 8083** and Flyway auto-creates all tables on first startup.
+The service starts on **port 8086** and Flyway auto-creates all tables on first startup.
 
 ## Configuration
 
-| Property                           | Default                                            |
-|------------------------------------|----------------------------------------------------|
-| `server.port`                      | `8083`                                             |
-| `spring.r2dbc.url`                 | `r2dbc:postgresql://localhost:5432/lending_loan_db` |
-| `app.security.api-key`             | `loan-service-api-key-2024`                        |
-| `spring.kafka.bootstrap-servers`   | `localhost:9092`                                   |
-| `app.service.customer-url`         | `http://localhost:8082`                             |
-| `app.sweep.cron`                   | `0 0 * * * *` (hourly)                             |
+| Property                           | Default                                              |
+|------------------------------------|------------------------------------------------------|
+| `server.port`                      | `8086`                                               |
+| `spring.r2dbc.url`                 | `r2dbc:postgresql://localhost:5432/lending_loan_db`  |
+| `app.security.api-key`             | `loan-service-api-key-2024`                          |
+| `spring.kafka.bootstrap-servers`   | `localhost:9092`                                     |
+| `app.kafka.topic.loan-events`      | `lendingLoanEventsv2`                                |
+| `app.kafka.topic.partitions`       | `2`                                                  |
+| `app.sweep.cron`                   | `0 */2 * * * *` (every 2 minutes - for testing ONLY) |
 
 ## Database Schema
 
 Flyway migrations create:
 
-- **billing_cycles** — consolidated billing with due day per customer
 - **loans** — loan records with state and idempotency key
 - **loan_installments** — individual installments for installment-type loans
 - **loan_repayments** — repayment transaction records
 - **loan_fees** — fees charged on loans (service, daily, late)
+- **billing_cycles** — consolidated billing preferences per customer (reference field only)
 
 ## Loan Creation Flow
 
-Loan creation is a simple reactive pipeline:
+Loan creation uses an atomic transactional pipeline with guaranteed Kafka delivery:
 
 ```
 1. Check idempotency key — if loan already exists, return it immediately
-2. Persist new loan (state = OPEN)
-3. Publish LOAN_CREATED event to Kafka
-4. If INSTALLMENT type, generate installment schedule
+2. Transaction:
+   - Persist new loan (state = OPEN)
+   - If INSTALLMENT type, generate installment schedule
+3. After commit:
+   - Publish LOAN_CREATED event to Kafka (guaranteed delivery)
 ```
 
-**Idempotency:** Each loan request requires a unique `Idempotency-Key` header. Duplicate keys return the existing loan without creating a new one.
+**Idempotency:** Each loan request requires a unique `Idempotency-Key` header. Duplicate keys return the existing loan without creating a new one. The key is persisted on the loan record and protected by a unique constraint.
+
+**Atomicity:** Loan and installment creation are wrapped in a single R2DBC transaction via `TransactionalOperator`. If installment creation fails, the loan is rolled back.
 
 ## API Endpoints
 
@@ -98,9 +102,9 @@ OPEN ──repay──▶ CLOSED
   └──write off──▶ WRITTEN_OFF
 ```
 
-## Kafka Events Published
+## Kafka Events
 
-Topic: `lending.loan.events` (6 partitions, key = `customerId`)
+Topic: `lendingLoanEventsv2` (2 partitions, key = `customerId`)
 
 | Event Type          | Trigger                          |
 |---------------------|----------------------------------|
@@ -110,13 +114,19 @@ Topic: `lending.loan.events` (6 partitions, key = `customerId`)
 | `LOAN_CANCELLED`    | Loan cancelled                   |
 | `OVERDUE_NOTICE`    | Sweep job detects overdue loans  |
 
+**Producer Config:** Idempotent producer (`enable.idempotence=true`), `acks=all`, 3 retries. Topic is auto-created on startup via `KafkaAdmin` + `NewTopic` bean.
+
 ## Overdue Sweep Job
 
-A `@Scheduled` component (`OverdueSweepJob`) runs on the `app.sweep.cron` schedule (default: hourly).
+The sweep is split into two components:
+
+- **`OverdueSweepJob`** — A thin `@Scheduled` trigger that runs on the `app.sweep.cron` schedule.
+- **`OverdueSweepService`** — Business logic: processes millions of records in batches of 100 using buffered reactive streams (`buffer` + `concatMap`).
 
 **What it does:**
-1. Finds all **OPEN** loans with `dueDate` before today → marks them **OVERDUE** and publishes an `OVERDUE_NOTICE` Kafka event per loan.
-2. Finds all **PENDING** installments with `dueDate` before today → marks them **OVERDUE**.
+1. Finds all **OPEN** loans with `dueDate <= today` → updates them to **OVERDUE** in batched transactions, then publishes an `OVERDUE_NOTICE` Kafka event per loan.
+2. Finds all **PENDING** installments with `dueDate <= today` → updates them to **OVERDUE**
+
 
 ## Billing Cycle
 
@@ -125,7 +135,7 @@ The `billing_cycles` table stores per-customer consolidated billing preferences 
 ## Example Request — Create Loan
 
 ```bash
-curl -X POST http://localhost:8083/api/v1/loans \
+curl -X POST http://localhost:8086/api/v1/loans \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: loan-service-api-key-2024" \
   -H "Idempotency-Key: LOAN-REQ-001" \
@@ -145,10 +155,11 @@ curl -X POST http://localhost:8083/api/v1/loans \
 src/main/java/com/glo/lending/loan/
 ├── LoanServiceApplication.java
 ├── components/
-│   ├── LoanEventPublisher.java            # Kafka event publisher
-│   └── OverdueSweepJob.java               # Scheduled job: marks overdue loans/installments, publishes OVERDUE_NOTICE
+│   ├── LoanEventPublisher.java            # Kafka event publisher (topic from config)
+│   ├── OverdueSweepJob.java               # @Scheduled trigger
+│   └── OverdueSweepService.java           # Batched overdue processing logic
 ├── config/
-│   ├── KafkaProducerConfig.java           # 6 partitions, idempotent, acks=all
+│   ├── KafkaProducerConfig.java           # KafkaAdmin + NewTopic + idempotent producer
 │   └── SecurityConfig.java
 ├── controller/
 │   └── LoanController.java
@@ -166,5 +177,6 @@ src/main/java/com/glo/lending/loan/
 │   └── serviceImpl/
 │       └── LoanServiceImpl.java           # Implementation
 └── utils/
-    └── LoanMapper.java
+    ├── LoanMapper.java                    # Entity-to-DTO mapping
+    └── Utilities.java                     # Shared event publishing helper
 ```

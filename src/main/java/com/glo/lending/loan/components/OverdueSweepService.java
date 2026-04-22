@@ -36,23 +36,30 @@ public class OverdueSweepService {
     private final TransactionalOperator tx;
     private final Utilities utilities;
 
-
-      //marks overdue loans and then overdue installments
-      //return Mono completing when all batches are processed
+    /**
+     * Marks overdue loans and then overdue installments.
+     *
+     * @return Mono completing when all batches are processed
+     */
     public Mono<Void> processOverdueLoans() {
         final LocalDate today = LocalDate.now();
         return processLoanBatches(today).then(processInstallmentBatches(today));
     }
 
-    private Mono<Void> processLoanBatches( LocalDate today) {
-        return loanRepository.findByStateAndDueDateBefore(LoanState.OPEN, today)
+    private Mono<Void> processLoanBatches(final LocalDate today) {
+        return loanRepository.findByStateAndDueDateLessThanEqual(LoanState.OPEN, today)
+                .switchIfEmpty(Flux.defer(() -> {
+                    log.info("No OPEN loans found with dueDate on or before {}", today);
+                    return Flux.empty();
+                }))
                 .buffer(BATCH_SIZE)
+                .doOnNext(batch -> log.info("Processing overdue loan batch, size={}", batch.size()))
                 .concatMap(this::processEachLoanBatch)
                 .then();
     }
 
     /**
-     *  updates a batch of loans to OVERDUE, then publishes events after commit.
+     * Updates a batch of loans to OVERDUE, then publishes events after commit.
      */
     private Mono<Void> processEachLoanBatch(final List<Loan> batch) {
         return updateLoansToOverdue(batch)
@@ -66,37 +73,38 @@ public class OverdueSweepService {
                     return loanRepository.save(loan);
                 })
                 .collectList()
-                .as(tx::transactional);
+                .as(tx::transactional)
+                .doOnSuccess(saved -> log.info("Batch of {} loans updated to OVERDUE", saved.size()));
     }
 
     private Mono<Void> publishOverdueEvents(final List<Loan> savedLoans) {
+        log.info("Publishing OVERDUE_NOTICE events for {} loans", savedLoans.size());
         return Flux.fromIterable(savedLoans)
-                .flatMap(loan -> utilities.publishEventReactive(
-                                loan.getCustomerId(),
-                                "OVERDUE_NOTICE",
-                                Map.of(
-                                        "eventType", "OVERDUE_NOTICE",
-                                        "loanId", loan.getId(),
-                                        "customerId", loan.getCustomerId(),
-                                        "outstandingBalance", loan.getOutstandingBalance(),
-                                        "dueDate", loan.getDueDate().toString()
-                                ))
-                        .doOnError(err -> log.error("Event publish failed for loanId={}", loan.getId(), err))
-                        .onErrorResume(e -> Mono.empty())
-                )
+                .flatMap(loan -> {
+                    log.info("Publishing OVERDUE_NOTICE for loanId={}, customerId={}", loan.getId(), loan.getCustomerId());
+                    return utilities.publishEventReactive(
+                                    loan.getCustomerId(),
+                                    "OVERDUE_NOTICE",
+                                    Map.of(
+                                            "eventType", "OVERDUE_NOTICE",
+                                            "loanId", loan.getId(),
+                                            "customerId", loan.getCustomerId(),
+                                            "outstandingBalance", loan.getOutstandingBalance(),
+                                            "dueDate", loan.getDueDate().toString()
+                                    ))
+                            .doOnSuccess(v -> log.info("OVERDUE_NOTICE published for loanId={}", loan.getId()))
+                            .doOnError(err -> log.error("OVERDUE_NOTICE publish FAILED for loanId={}", loan.getId(), err));
+                })
                 .then();
     }
 
-    // collects all overdue installments in batches and updates them to OVERDUE
     private Mono<Void> processInstallmentBatches(final LocalDate today) {
-        return installmentRepository.findByStateAndDueDateBefore(InstallmentState.PENDING, today)
+        return installmentRepository.findByStateAndDueDateLessThanEqual(InstallmentState.PENDING, today)
                 .buffer(BATCH_SIZE)
                 .concatMap(this::processInstallmentBatch)
                 .then();
     }
 
-
-    // updates each batch of installments to OVERDUE
     private Mono<Void> processInstallmentBatch(final List<LoanInstallment> batch) {
         return Flux.fromIterable(batch).flatMap(inst -> {
                     inst.setState(InstallmentState.OVERDUE);

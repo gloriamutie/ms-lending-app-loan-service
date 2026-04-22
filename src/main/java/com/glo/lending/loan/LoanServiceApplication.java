@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class LoanServiceApplication {
 
     public static void main(final String[] args) {
+
         SpringApplication.run(LoanServiceApplication.class, args);
     }
 }
