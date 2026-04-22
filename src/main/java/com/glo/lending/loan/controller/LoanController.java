@@ -2,7 +2,6 @@ package com.glo.lending.loan.controller;
 
 import com.glo.lending.loan.model.dto.*;
 import com.glo.lending.loan.service.LoanService;
-import com.glo.lending.loan.service.serviceImpl.LoanServiceImpl;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -24,12 +23,17 @@ import java.util.UUID;
 public class LoanController {
 
     private static final Logger log = LoggerFactory.getLogger(LoanController.class);
+    private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
+
     private final LoanService loanService;
 
     @PostMapping
-    public Mono<ResponseEntity<LoanResponse>> createLoan(@Valid @RequestBody final CreateLoanRequest request) {
-        log.info("POST /api/v1/loans — idempotencyKey={}", request.getIdempotencyKey());
-        return loanService.createLoan(request).map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
+    public Mono<ResponseEntity<LoanResponse>> createLoan(@Valid @RequestBody  CreateLoanRequest request,
+                                                         @RequestHeader(IDEMPOTENCY_HEADER)  String idempotencyKey) {
+
+        log.info("POST /api/v1/loans - idempotencyKey={}", idempotencyKey);
+        return loanService.createLoan(request, idempotencyKey)
+                .map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
     }
 
     @GetMapping("/{loanId}")
@@ -46,7 +50,7 @@ public class LoanController {
 
     @PostMapping("/repayments")
     public Mono<ResponseEntity<RepaymentResponse>> makeRepayment(@Valid @RequestBody final RepaymentRequest request) {
-        log.info("POST /api/v1/loans/repayments — loanId={}", request.getLoanId());
+        log.info("POST /api/v1/loans/repayments - loanId={}", request.getLoanId());
         return loanService.makeRepayment(request).map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
     }
 
@@ -56,4 +60,3 @@ public class LoanController {
         return loanService.cancelLoan(loanId).map(r -> ResponseEntity.ok().body(r));
     }
 }
-

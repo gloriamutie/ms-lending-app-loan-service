@@ -12,9 +12,6 @@ import java.util.UUID;
 
 @Data
 public class CreateLoanRequest {
-        @NotBlank(message = "Idempotency key is required")
-        String idempotencyKey;
-
         @NotNull(message = "Customer ID is required")
         UUID customerId;
 
@@ -37,4 +34,3 @@ public class CreateLoanRequest {
 
         UUID billingCycleId;
 }
-

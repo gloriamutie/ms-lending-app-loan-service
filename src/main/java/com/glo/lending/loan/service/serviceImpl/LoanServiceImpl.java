@@ -1,6 +1,5 @@
 package com.glo.lending.loan.service.serviceImpl;
 
-import com.glo.lending.loan.components.LoanCreationSagaOrchestrator;
 import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.exception.LoanNotFoundException;
 import com.glo.lending.loan.model.dto.*;
@@ -14,19 +13,21 @@ import com.glo.lending.loan.utils.LoanMapper;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Core service for loan lifecycle management: creation (via saga), repayment, and queries.
- */
+
+ // Core service for loan lifecycle management: creation, repayment, and queries.
 @Service
 @RequiredArgsConstructor
 public class LoanServiceImpl implements LoanService {
@@ -36,19 +37,67 @@ public class LoanServiceImpl implements LoanService {
     private final LoanRepository loanRepository;
     private final LoanInstallmentRepository installmentRepository;
     private final LoanRepaymentRepository repaymentRepository;
-    private final LoanCreationSagaOrchestrator sagaOrchestrator;
     private final LoanEventPublisher eventPublisher;
+    private final TransactionalOperator transactionalOperator;
+
+
+    private record CreateLoanResult(Loan loan, boolean created) {}
+
+     // Creates and persists a new loan, then publishes a LOAN_CREATED event.
+    @Override
+    public Mono<LoanResponse> createLoan(final CreateLoanRequest request, final String idempotencyKeyHeader) {
+        final String idempotencyKey = idempotencyKeyHeader.trim();
+        log.info("Creating loan: customerId={}, idempotencyKey={}", request.getCustomerId(), idempotencyKey);
+
+        return loanRepository.findByIdempotencyKey(idempotencyKey)
+                .map(existingLoan -> new CreateLoanResult(existingLoan, false))
+                .switchIfEmpty(Mono.defer(() -> createLoanAtomically(request, idempotencyKey)))
+                .flatMap(result -> {
+                    if (!result.created()) {
+                        log.info("Idempotent replay detected. Returning existing loan for key={}", idempotencyKey);
+                        return getLoanInstallments(result.loan());
+                    }
+
+                    // After transaction commits, publish events asynchronously
+                    return getLoanInstallments(result.loan())
+                            .doOnNext(response -> publishEvent(
+                                    result.loan().getCustomerId(),
+                                    "LOAN_CREATED",
+                                    Map.of(
+                                            "eventType", "LOAN_CREATED",
+                                            "loanId", result.loan().getId(),
+                                            "customerId", result.loan().getCustomerId(),
+                                            "loanAmount", result.loan().getPrincipalAmount(),
+                                            "dueDate", result.loan().getDueDate().toString()
+                                    )
+                            ));
+                });
+    }
 
     /**
-     * Creates a loan via the distributed saga (idempotent).
-     *
-     * @param request the loan creation request with idempotency key
-     * @return a {@link Mono} emitting the created loan response
+     * Atomically creates loan + installments within a single transaction.
+     * Both succeed or both fail together.
      */
-    @Override
-    public Mono<LoanResponse> createLoan( CreateLoanRequest request) {
-        log.info("Creating loan: customerId={}, idempotencyKey={}", request.getCustomerId(), request.getIdempotencyKey());
-        Loan loan = Loan.builder()
+    private Mono<CreateLoanResult> createLoanAtomically( CreateLoanRequest request,  String idempotencyKey) {
+        return createLoanWithIdempotencyProtection(request, idempotencyKey)
+                .flatMap(result -> {
+                    if (!result.created()) {
+                        return Mono.just(result);
+                    }
+
+                    if (result.loan().getLoanType() == LoanType.INSTALLMENT) {
+                        return createInstallments(result.loan())
+                                .thenReturn(result);
+                    }
+                    return Mono.just(result);
+                })
+                .as(transactionalOperator::transactional);
+    }
+
+
+
+    private Mono<CreateLoanResult> createLoanWithIdempotencyProtection( CreateLoanRequest request, String idempotencyKey) {
+         Loan loan = Loan.builder()
                 .customerId(request.getCustomerId())
                 .productId(request.getProductId())
                 .principalAmount(request.getPrincipalAmount())
@@ -61,42 +110,35 @@ public class LoanServiceImpl implements LoanService {
                 .billingCycleId(request.getBillingCycleId())
                 .tenureValue(request.getTenureValue())
                 .tenureType(request.getTenureType())
-                .idempotencyKey(request.getIdempotencyKey())
+                .idempotencyKey(idempotencyKey)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-
-        return sagaOrchestrator.executeSaga(loan).flatMap(savedLoan -> {
-                    if (request.getLoanType() == LoanType.INSTALLMENT) {
-                        return createInstallments(savedLoan).thenReturn(savedLoan);
-                    }
-                    return Mono.just(savedLoan);
-                }).flatMap(this::enrichWithInstallments);
+        return loanRepository.save(loan)
+                .map(savedLoan -> new CreateLoanResult(savedLoan, true))
+                .onErrorResume(DataIntegrityViolationException.class, error ->
+                        loanRepository.findByIdempotencyKey(idempotencyKey)
+                                .map(existingLoan -> new CreateLoanResult(existingLoan, false))
+                                .switchIfEmpty(Mono.error(error))
+                );
     }
 
-    /**
-     * Retrieves a loan by ID with installments.
-     */
+
+     //Retrieves a loan by ID with installments
     @Override
-    public Mono<LoanResponse> getLoanById(final UUID loanId) {
-        return loanRepository.findById(loanId)
-                .switchIfEmpty(Mono.error(new LoanNotFoundException(loanId)))
-                .flatMap(this::enrichWithInstallments);
+    public Mono<LoanResponse> getLoanById(UUID loanId) {
+        return loanRepository.findById(loanId).switchIfEmpty(Mono.error(new LoanNotFoundException(loanId)))
+                .flatMap(this::getLoanInstallments);
     }
 
-    /**
-     * Retrieves all loans for a customer.
-     */
+    //Retrieves all loans for a customer with installments
     @Override
-    public Flux<LoanResponse> getLoansByCustomerId(final UUID customerId) {
-        return loanRepository.findByCustomerId(customerId)
-                .flatMap(this::enrichWithInstallments);
+    public Flux<LoanResponse> getLoansByCustomerId(UUID customerId) {
+        return loanRepository.findByCustomerId(customerId).flatMap(this::getLoanInstallments);
     }
 
-    /**
-     * Processes a repayment against a loan.
-     */
+    //Processes a repayment against a loan, updates loan balance and state, and publishes events accordingly
     @Override
     public Mono<RepaymentResponse> makeRepayment(final RepaymentRequest request) {
         log.info("Processing repayment: loanId={}, amount={}", request.getLoanId(), request.getAmount());
@@ -118,61 +160,90 @@ public class LoanServiceImpl implements LoanService {
                     loan.setOutstandingBalance(loan.getOutstandingBalance().subtract(request.getAmount()));
                     loan.setUpdatedAt(LocalDateTime.now());
 
-                    if (loan.getOutstandingBalance().compareTo(BigDecimal.ZERO) <= 0) {
+                     boolean isLoanClosed = loan.getOutstandingBalance().compareTo(BigDecimal.ZERO) <= 0;
+                    if (isLoanClosed) {
                         loan.setOutstandingBalance(BigDecimal.ZERO);
                         loan.setState(LoanState.CLOSED);
                     }
 
-                    return repaymentRepository.save(repayment)
-                            .flatMap(saved -> loanRepository.save(loan).thenReturn(saved))
-                            .flatMap(saved -> eventPublisher.publishLoanEvent(loan.getCustomerId(), Map.of(
-                                    "eventType", loan.getState() == LoanState.CLOSED ? "LOAN_CLOSED" : "REPAYMENT_RECEIVED",
-                                    "loanId", loan.getId(), "customerId", loan.getCustomerId(),
+                    final String repaymentEventType = isLoanClosed ? "LOAN_CLOSED" : "REPAYMENT_RECEIVED";
+
+                    // Atomically save repayment + update loan
+                    return Mono.just(repayment)
+                            .flatMap(repaymentRepository::save)
+                            .flatMap(savedRepayment -> loanRepository.save(loan).thenReturn(savedRepayment))
+                            .as(transactionalOperator::transactional)
+                            .map(LoanMapper::toRepaymentResponse)
+                            .doOnNext(r -> publishEvent(loan.getCustomerId(), repaymentEventType, Map.of(
+                                    "eventType", repaymentEventType,
+                                    "loanId", loan.getId(),
+                                    "customerId", loan.getCustomerId(),
                                     "amount", request.getAmount()
-                            )).thenReturn(saved));
-                })
-                .map(LoanMapper::toRepaymentResponse)
-                .doOnSuccess(r -> log.info("Repayment processed: id={}", r.id()));
+                            )))
+                            .doOnSuccess(r -> log.info("Repayment processed: id={}", r.id()));
+                });
     }
 
-    /**
-     * Cancels a loan (only OPEN loans can be cancelled).
-     */
+
+    private void publishEvent( UUID customerId,  String eventType,  Map<String, Object> payload) {
+        eventPublisher.publishLoanEvent(customerId, payload)
+                .doOnSuccess(v -> log.debug("{} event published for customerId={}", eventType, customerId))
+                .doOnError(err -> log.error("Failed to publish {} event for customerId={}", eventType, customerId, err))
+                .subscribe();
+    }
+
+    // Cancels an OPEN loan, updates its state, and publishes a LOAN_CANCELLED event. Only loans in OPEN state can be cancelled.
     @Override
-    public Mono<LoanResponse> cancelLoan(final UUID loanId) {
+    public Mono<LoanResponse> cancelLoan( UUID loanId) {
         log.info("Cancelling loan: {}", loanId);
-        return loanRepository.findById(loanId).switchIfEmpty(Mono.error(new LoanNotFoundException(loanId)))
+        return loanRepository.findById(loanId)
+                .switchIfEmpty(Mono.error(new LoanNotFoundException(loanId)))
                 .flatMap(loan -> {
                     if (loan.getState() != LoanState.OPEN) {
                         return Mono.error(new IllegalStateException("Only OPEN loans can be cancelled"));
                     }
                     loan.setState(LoanState.CANCELLED);
                     loan.setUpdatedAt(LocalDateTime.now());
-                    return loanRepository.save(loan);
-                }).flatMap(loan -> eventPublisher.publishLoanEvent(loan.getCustomerId(), Map.of(
-                        "eventType", "LOAN_CANCELLED", "loanId", loan.getId(), "customerId", loan.getCustomerId()
-                )).thenReturn(loan)).flatMap(this::enrichWithInstallments);
+                    
+                    return loanRepository.save(loan).as(transactionalOperator::transactional);
+                })
+                .flatMap(this::getLoanInstallments)
+                .doOnNext(response -> publishEvent(response.customerId(), "LOAN_CANCELLED",
+                        Map.of(
+                                "eventType", "LOAN_CANCELLED",
+                                "loanId", response.id(),
+                                "customerId", response.customerId()
+                        )
+                ));
     }
 
-    private Mono<LoanResponse> enrichWithInstallments(final Loan loan) {
+    private Mono<LoanResponse> getLoanInstallments( Loan loan) {
         return installmentRepository.findByLoanIdOrderByInstallmentNumber(loan.getId())
                 .collectList()
                 .map(installments -> LoanMapper.toResponse(loan, installments));
     }
 
-    private Mono<Void> createInstallments(final Loan loan) {
-        final int count = loan.getTenureValue();
-        final BigDecimal installmentAmount = loan.getPrincipalAmount()
-                .divide(BigDecimal.valueOf(count), 2, java.math.RoundingMode.HALF_UP);
+    // Calculate and create loan installments with proper rounding for the last installment
+    private Mono<Void> createInstallments( Loan loan) {
+         int count = loan.getTenureValue();
+         BigDecimal baseAmount = loan.getPrincipalAmount().divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
 
-        return Flux.range(1, count)
-                .map(num -> {
-                    final LoanInstallment inst = new LoanInstallment();
+        return Flux.range(1, count).map(num -> {
+                     LoanInstallment inst = new LoanInstallment();
                     inst.setLoanId(loan.getId());
                     inst.setInstallmentNumber(num);
-                    inst.setAmount(installmentAmount);
+
+                    // Last installment gets any remainder to ensure total equals principal
+                    if (num == count) {
+                         BigDecimal totalBefore = baseAmount.multiply(BigDecimal.valueOf(count - 1));
+                         BigDecimal last = loan.getPrincipalAmount().subtract(totalBefore);
+                        inst.setAmount(last);
+                    } else {
+                        inst.setAmount(baseAmount);
+                    }
+
                     inst.setPaidAmount(BigDecimal.ZERO);
-                    inst.setDueDate(loan.getOriginationDate().plusMonths(num));
+                    inst.setDueDate(loan.getOriginationDate().plusMonths(num - 1));
                     inst.setState(InstallmentState.PENDING);
                     return inst;
                 })
@@ -180,7 +251,8 @@ public class LoanServiceImpl implements LoanService {
                 .then();
     }
 
-    private LocalDate calculateDueDate(final int tenureValue, final String tenureType) {
+
+    private LocalDate calculateDueDate( int tenureValue,  String tenureType) {
         return "MONTHS".equalsIgnoreCase(tenureType)
                 ? LocalDate.now().plusMonths(tenureValue)
                 : LocalDate.now().plusDays(tenureValue);

@@ -41,8 +41,8 @@ VALUES ('e1111111-eeee-eeee-eeee-eeeeeeeeeeee', 'b2222222-bbbb-bbbb-bbbb-bbbbbbb
 ON CONFLICT (id) DO NOTHING;
 
 -- Loan 3: Overdue loan (for sweep job demo)
-INSERT INTO loans (id, customer_id, product_id, principal_amount, outstanding_balance, total_fees, loan_type, state, origination_date, due_date, tenure_value, tenure_type, idempotency_key, saga_status)
-VALUES ('b3333333-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'd2e3f4a5-b6c7-8901-def2-345678901bcd', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 5000.00, 5750.00, 750.00, 'LUMP_SUM', 'OVERDUE', '2026-02-01', '2026-03-03', 30, 'DAYS', 'IDEM-JOHN-LOAN-002', 'COMPLETED')
+INSERT INTO loans (id, customer_id, product_id, principal_amount, outstanding_balance, total_fees, loan_type, state, origination_date, due_date, tenure_value, tenure_type, idempotency_key)
+VALUES ('b3333333-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'd2e3f4a5-b6c7-8901-def2-345678901bcd', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 5000.00, 5750.00, 750.00, 'LUMP_SUM', 'OVERDUE', '2026-02-01', '2026-03-03', 30, 'DAYS', 'IDEM-JOHN-LOAN-002')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO loan_fees (id, loan_id, fee_type, amount, applied_date, is_paid)

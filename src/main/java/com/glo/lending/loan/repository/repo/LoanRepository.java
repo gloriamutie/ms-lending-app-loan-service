@@ -31,13 +31,5 @@ public interface LoanRepository extends ReactiveCrudRepository<Loan, UUID> {
      * @return a {@link Mono} emitting the existing loan if found
      */
     Mono<Loan> findByIdempotencyKey(String idempotencyKey);
-
-    /**
-     * Finds loans with a pending saga that need compensation or completion.
-     *
-     * @param sagaStatus the saga status to filter by
-     * @return a {@link Flux} of loans in the given saga state
-     */
-    Flux<Loan> findBySagaStatus(String sagaStatus);
 }
 

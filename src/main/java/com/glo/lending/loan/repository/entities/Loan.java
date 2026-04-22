@@ -4,6 +4,8 @@ import com.glo.lending.loan.model.enums.LoanState;
 import com.glo.lending.loan.model.enums.LoanType;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -17,6 +19,8 @@ import java.util.UUID;
 
 @Builder
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Table("loans")
 public class Loan {
 
@@ -48,8 +52,6 @@ public class Loan {
     private String tenureType;
     @Column("idempotency_key")
     private String idempotencyKey;
-    @Column("saga_status")
-    private String sagaStatus;
     @CreatedDate
     @Column("created_at")
     private LocalDateTime createdAt;

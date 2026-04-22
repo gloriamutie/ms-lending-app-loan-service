@@ -17,20 +17,7 @@ import org.springframework.kafka.support.serializer.JsonSerializer;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Kafka producer configuration with partitioning strategy.
- * <p>
- * <b>Partitioning Strategy:</b> Events are partitioned by {@code customerId} so that
- * all events for a given customer are delivered to the same partition, guaranteeing
- * ordered processing per customer. This is critical for:
- * <ul>
- *   <li>Correct notification sequencing (e.g., LOAN_CREATED before DUE_DATE_REMINDER)</li>
- *   <li>Preventing race conditions in customer limit updates</li>
- *   <li>Enabling scalable, parallel consumption across partitions</li>
- * </ul>
- * Topics use 6 partitions for horizontal scalability with 2 replicas for fault tolerance.
- * </p>
- */
+
 @Configuration
 public class KafkaProducerConfig {
 
@@ -39,40 +26,8 @@ public class KafkaProducerConfig {
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
 
-    /**
-     * Creates the loan events topic with 6 partitions and replication factor 2.
-     * Partitioning by customerId ensures per-customer ordering.
-     *
-     * @return the loan events topic configuration
-     */
-    @Bean
-    public NewTopic loanEventsTopic() {
-        log.info("Creating Kafka topic: lending.loan.events with 6 partitions");
-        return TopicBuilder.name("lending.loan.events")
-                .partitions(6)
-                .replicas(1) // Use 2+ in production with multi-broker setup
-                .build();
-    }
 
-    /**
-     * Creates the customer events topic with 6 partitions.
-     *
-     * @return the customer events topic configuration
-     */
-    @Bean
-    public NewTopic customerEventsTopic() {
-        log.info("Creating Kafka topic: lending.customer.events with 6 partitions");
-        return TopicBuilder.name("lending.customer.events")
-                .partitions(6)
-                .replicas(1)
-                .build();
-    }
 
-    /**
-     * Producer factory configured for JSON serialization.
-     *
-     * @return a {@link ProducerFactory} for String keys and Object values
-     */
     @Bean
     public ProducerFactory<String, Object> producerFactory() {
         final Map<String, Object> props = new HashMap<>();
@@ -86,11 +41,6 @@ public class KafkaProducerConfig {
         return new DefaultKafkaProducerFactory<>(props);
     }
 
-    /**
-     * Kafka template configured to use customerId as partition key.
-     *
-     * @return a {@link KafkaTemplate} for publishing events
-     */
     @Bean
     public KafkaTemplate<String, Object> kafkaTemplate() {
 

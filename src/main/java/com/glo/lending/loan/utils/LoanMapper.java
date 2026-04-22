@@ -10,7 +10,7 @@ public final class LoanMapper {
     private LoanMapper() {
     }
 
-    public static LoanResponse toResponse(final Loan loan, final List<LoanInstallment> installments) {
+    public static LoanResponse toResponse( Loan loan,  List<LoanInstallment> installments) {
         return new LoanResponse(loan.getId(), loan.getCustomerId(), loan.getProductId(),
                 loan.getPrincipalAmount(), loan.getOutstandingBalance(), loan.getTotalFees(),
                 loan.getLoanType(), loan.getState(), loan.getOriginationDate(), loan.getDueDate(),
@@ -19,12 +19,12 @@ public final class LoanMapper {
                 loan.getCreatedAt(), loan.getUpdatedAt());
     }
 
-    public static InstallmentResponse toInstallmentResponse(final LoanInstallment i) {
+    public static InstallmentResponse toInstallmentResponse( LoanInstallment i) {
         return new InstallmentResponse(i.getId(), i.getInstallmentNumber(),
                 i.getAmount(), i.getPaidAmount(), i.getDueDate(), i.getState(), i.getPaidAt());
     }
 
-    public static RepaymentResponse toRepaymentResponse(final LoanRepayment r) {
+    public static RepaymentResponse toRepaymentResponse( LoanRepayment r) {
         return new RepaymentResponse(r.getId(), r.getLoanId(), r.getInstallmentId(),
                 r.getAmount(), r.getPaymentDate(), r.getPaymentReference());
     }

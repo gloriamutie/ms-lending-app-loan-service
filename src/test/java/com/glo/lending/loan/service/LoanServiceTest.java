@@ -1,6 +1,5 @@
 package com.glo.lending.loan.service;
 
-import com.glo.lending.loan.components.LoanCreationSagaOrchestrator;
 import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.exception.LoanNotFoundException;
 import com.glo.lending.loan.model.dto.CreateLoanRequest;
@@ -19,9 +18,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+
+import org.mockito.ArgumentMatchers;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,8 +43,8 @@ class LoanServiceTest {
     @Mock private LoanRepaymentRepository repaymentRepository;
     @Mock private LoanFeeRepository loanFeeRepository;
     @Mock private BillingCycleRepository billingCycleRepository;
-    @Mock private LoanCreationSagaOrchestrator sagaOrchestrator;
     @Mock private LoanEventPublisher eventPublisher;
+    @Mock private TransactionalOperator transactionalOperator;
 
     @InjectMocks private LoanServiceImpl loanService;
 
@@ -68,9 +70,13 @@ class LoanServiceTest {
         loan.setTenureValue(30);
         loan.setTenureType("DAYS");
         loan.setIdempotencyKey("IDEM-001");
-        loan.setSagaStatus("COMPLETED");
         loan.setCreatedAt(LocalDateTime.now());
         loan.setUpdatedAt(LocalDateTime.now());
+
+        // Configure TransactionalOperator to pass through Mono/Flux without modification
+        // Using ArgumentMatchers.any() with proper casting to avoid type erasure issues
+        lenient().when(transactionalOperator.transactional(ArgumentMatchers.<Mono>any()))
+                .thenAnswer(inv -> inv.<Mono>getArgument(0));
     }
 
     @Nested
@@ -78,24 +84,72 @@ class LoanServiceTest {
     class CreateLoan {
 
         @Test
-        @DisplayName("should create lump sum loan via saga")
+        @DisplayName("should create lump sum loan and publish event")
         void createLoan_LumpSum_ReturnsLoanResponse() {
             // Given
-            final CreateLoanRequest request = new CreateLoanRequest(
-                    "IDEM-001", customerId, UUID.randomUUID(), BigDecimal.valueOf(10000),
-                    LoanType.LUMP_SUM, 30, "DAYS", null
-            );
-            when(sagaOrchestrator.executeSaga(any(Loan.class))).thenReturn(Mono.just(loan));
+            final CreateLoanRequest request = new CreateLoanRequest();
+            request.setCustomerId(customerId);
+            request.setProductId(UUID.randomUUID());
+            request.setPrincipalAmount(BigDecimal.valueOf(10000));
+            request.setLoanType(LoanType.LUMP_SUM);
+            request.setTenureValue(30);
+            request.setTenureType("DAYS");
+
+            final Loan savedLoan = Loan.builder()
+                    .id(loanId)
+                    .customerId(customerId)
+                    .productId(request.getProductId())
+                    .principalAmount(request.getPrincipalAmount())
+                    .outstandingBalance(request.getPrincipalAmount())
+                    .totalFees(BigDecimal.ZERO)
+                    .loanType(LoanType.LUMP_SUM)
+                    .state(LoanState.OPEN)
+                    .originationDate(LocalDate.now())
+                    .dueDate(LocalDate.now().plusDays(30))
+                    .tenureValue(30)
+                    .tenureType("DAYS")
+                    .idempotencyKey("IDEM-001")
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+
+            when(loanRepository.findByIdempotencyKey("IDEM-001")).thenReturn(Mono.empty());
+            when(loanRepository.save(any(Loan.class))).thenReturn(Mono.just(savedLoan));
+            when(eventPublisher.publishLoanEvent(any(), any())).thenReturn(Mono.empty());
             when(installmentRepository.findByLoanIdOrderByInstallmentNumber(loanId)).thenReturn(Flux.empty());
 
             // When & Then
-            StepVerifier.create(loanService.createLoan(request))
+            StepVerifier.create(loanService.createLoan(request, "IDEM-001"))
                     .assertNext(response -> {
                         assertEquals(loanId, response.id());
                         assertEquals(LoanType.LUMP_SUM, response.loanType());
                         assertTrue(response.installments().isEmpty());
                     })
                     .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("should return existing loan when idempotency key already exists")
+        void createLoan_DuplicateIdempotencyKey_ReturnsExistingLoan() {
+            // Given
+            final CreateLoanRequest request = new CreateLoanRequest();
+            request.setCustomerId(customerId);
+            request.setProductId(UUID.randomUUID());
+            request.setPrincipalAmount(BigDecimal.valueOf(10000));
+            request.setLoanType(LoanType.LUMP_SUM);
+            request.setTenureValue(30);
+            request.setTenureType("DAYS");
+
+            when(loanRepository.findByIdempotencyKey("IDEM-001")).thenReturn(Mono.just(loan));
+            when(installmentRepository.findByLoanIdOrderByInstallmentNumber(loanId)).thenReturn(Flux.empty());
+
+            // When & Then
+            StepVerifier.create(loanService.createLoan(request, "IDEM-001"))
+                    .assertNext(response -> assertEquals(loanId, response.id()))
+                    .verifyComplete();
+
+            verify(loanRepository, never()).save(any());
+            verify(eventPublisher, never()).publishLoanEvent(any(), any());
         }
     }
 
@@ -155,7 +209,11 @@ class LoanServiceTest {
         @DisplayName("should process repayment and reduce balance")
         void makeRepayment_ValidAmount_ReducesBalance() {
             // Given
-            final RepaymentRequest request = new RepaymentRequest(loanId, null, BigDecimal.valueOf(5000), "MPESA-001");
+            final RepaymentRequest request = new RepaymentRequest();
+            request.setLoanId(loanId);
+            request.setAmount(BigDecimal.valueOf(5000));
+            request.setPaymentReference("MPESA-001");
+
             final LoanRepayment repayment = new LoanRepayment();
             repayment.setId(UUID.randomUUID());
             repayment.setLoanId(loanId);
@@ -181,7 +239,11 @@ class LoanServiceTest {
         @DisplayName("should close loan when fully repaid")
         void makeRepayment_FullRepayment_ClosesLoan() {
             // Given
-            final RepaymentRequest request = new RepaymentRequest(loanId, null, BigDecimal.valueOf(10000), "MPESA-002");
+            final RepaymentRequest request = new RepaymentRequest();
+            request.setLoanId(loanId);
+            request.setAmount(BigDecimal.valueOf(10000));
+            request.setPaymentReference("MPESA-002");
+
             final LoanRepayment repayment = new LoanRepayment();
             repayment.setId(UUID.randomUUID());
             repayment.setLoanId(loanId);
@@ -209,10 +271,14 @@ class LoanServiceTest {
         void makeRepayment_ClosedLoan_ThrowsException() {
             // Given
             loan.setState(LoanState.CLOSED);
+            final RepaymentRequest request = new RepaymentRequest();
+            request.setLoanId(loanId);
+            request.setAmount(BigDecimal.ONE);
+            request.setPaymentReference("REF");
             when(loanRepository.findById(loanId)).thenReturn(Mono.just(loan));
 
             // When & Then
-            StepVerifier.create(loanService.makeRepayment(new RepaymentRequest(loanId, null, BigDecimal.ONE, "REF")))
+            StepVerifier.create(loanService.makeRepayment(request))
                     .expectErrorMatches(e -> e instanceof IllegalStateException && e.getMessage().contains("CLOSED"))
                     .verify();
         }
@@ -221,10 +287,14 @@ class LoanServiceTest {
         @DisplayName("should throw when loan not found")
         void makeRepayment_LoanNotFound_ThrowsException() {
             // Given
+            final RepaymentRequest request = new RepaymentRequest();
+            request.setLoanId(loanId);
+            request.setAmount(BigDecimal.ONE);
+            request.setPaymentReference("REF");
             when(loanRepository.findById(loanId)).thenReturn(Mono.empty());
 
             // When & Then
-            StepVerifier.create(loanService.makeRepayment(new RepaymentRequest(loanId, null, BigDecimal.ONE, "REF")))
+            StepVerifier.create(loanService.makeRepayment(request))
                     .expectError(LoanNotFoundException.class)
                     .verify();
         }
@@ -261,6 +331,17 @@ class LoanServiceTest {
                     .expectErrorMatches(e -> e instanceof IllegalStateException && e.getMessage().contains("OPEN"))
                     .verify();
         }
+
+        @Test
+        @DisplayName("should throw when loan not found during cancel")
+        void cancelLoan_LoanNotFound_ThrowsException() {
+            // Given
+            when(loanRepository.findById(loanId)).thenReturn(Mono.empty());
+
+            // When & Then
+            StepVerifier.create(loanService.cancelLoan(loanId))
+                    .expectError(LoanNotFoundException.class)
+                    .verify();
+        }
     }
 }
-
