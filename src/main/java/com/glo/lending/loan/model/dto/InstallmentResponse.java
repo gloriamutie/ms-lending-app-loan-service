@@ -1,5 +1,6 @@
 package com.glo.lending.loan.model.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.glo.lending.loan.model.enums.InstallmentState;
 
 import java.math.BigDecimal;
@@ -18,6 +19,7 @@ import java.util.UUID;
  * @param state              current installment state
  * @param paidAt             when fully paid (null if not yet)
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record InstallmentResponse(
         UUID id,
         Integer installmentNumber,
