@@ -17,7 +17,7 @@ public class TransactionConfig {
      * in database transactions.
      */
     @Bean
-    public TransactionalOperator transactionalOperator(final ReactiveTransactionManager txManager) {
+    public TransactionalOperator transactionalOperator( ReactiveTransactionManager txManager) {
         return TransactionalOperator.create(txManager);
     }
 }

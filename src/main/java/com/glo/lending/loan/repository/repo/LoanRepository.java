@@ -6,6 +6,8 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import com.glo.lending.loan.model.enums.LoanState;
+
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -17,9 +19,9 @@ public interface LoanRepository extends ReactiveCrudRepository<Loan, UUID> {
 
     Flux<Loan> findByCustomerId(UUID customerId);
 
-    Flux<Loan> findByState(String state);
+    Flux<Loan> findByState(LoanState state);
 
-    Flux<Loan> findByStateAndDueDateBefore(String state, LocalDate date);
+    Flux<Loan> findByStateAndDueDateBefore(LoanState state, LocalDate date);
 
     Flux<Loan> findByBillingCycleId(UUID billingCycleId);
 

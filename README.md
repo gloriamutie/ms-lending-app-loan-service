@@ -110,6 +110,18 @@ Topic: `lending.loan.events` (6 partitions, key = `customerId`)
 | `LOAN_CANCELLED`    | Loan cancelled                   |
 | `OVERDUE_NOTICE`    | Sweep job detects overdue loans  |
 
+## Overdue Sweep Job
+
+A `@Scheduled` component (`OverdueSweepJob`) runs on the `app.sweep.cron` schedule (default: hourly).
+
+**What it does:**
+1. Finds all **OPEN** loans with `dueDate` before today → marks them **OVERDUE** and publishes an `OVERDUE_NOTICE` Kafka event per loan.
+2. Finds all **PENDING** installments with `dueDate` before today → marks them **OVERDUE**.
+
+## Billing Cycle
+
+The `billing_cycles` table stores per-customer consolidated billing preferences (`consolidatedDueDay`, `isConsolidated`). A `billingCycleId` is optionally associated with a loan at creation time. This is a reference field — consolidated billing logic is handled externally by the billing service.
+
 ## Example Request — Create Loan
 
 ```bash
@@ -133,7 +145,8 @@ curl -X POST http://localhost:8083/api/v1/loans \
 src/main/java/com/glo/lending/loan/
 ├── LoanServiceApplication.java
 ├── components/
-│   └── LoanEventPublisher.java            # Kafka event publisher
+│   ├── LoanEventPublisher.java            # Kafka event publisher
+│   └── OverdueSweepJob.java               # Scheduled job: marks overdue loans/installments, publishes OVERDUE_NOTICE
 ├── config/
 │   ├── KafkaProducerConfig.java           # 6 partitions, idempotent, acks=all
 │   └── SecurityConfig.java

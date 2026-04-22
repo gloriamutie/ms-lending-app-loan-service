@@ -28,5 +28,6 @@ public final class LoanMapper {
         return new RepaymentResponse(r.getId(), r.getLoanId(), r.getInstallmentId(),
                 r.getAmount(), r.getPaymentDate(), r.getPaymentReference());
     }
+
 }
 

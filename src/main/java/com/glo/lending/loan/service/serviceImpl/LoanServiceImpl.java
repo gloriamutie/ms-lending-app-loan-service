@@ -1,6 +1,5 @@
 package com.glo.lending.loan.service.serviceImpl;
 
-import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.exception.LoanNotFoundException;
 import com.glo.lending.loan.model.dto.*;
 import com.glo.lending.loan.model.enums.InstallmentState;
@@ -10,6 +9,7 @@ import com.glo.lending.loan.repository.entities.*;
 import com.glo.lending.loan.repository.repo.*;
 import com.glo.lending.loan.service.LoanService;
 import com.glo.lending.loan.utils.LoanMapper;
+import com.glo.lending.loan.utils.Utilities;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +37,9 @@ public class LoanServiceImpl implements LoanService {
     private final LoanRepository loanRepository;
     private final LoanInstallmentRepository installmentRepository;
     private final LoanRepaymentRepository repaymentRepository;
-    private final LoanEventPublisher eventPublisher;
+    private final Utilities utilities;
     private final TransactionalOperator transactionalOperator;
+
 
 
     private record CreateLoanResult(Loan loan, boolean created) {}
@@ -59,7 +60,7 @@ public class LoanServiceImpl implements LoanService {
                     }
 
                     // After transaction commits, publish events asynchronously
-                    return getLoanInstallments(result.loan()).doOnNext(response -> publishEvent(
+                    return getLoanInstallments(result.loan()).doOnNext(response -> utilities.publishEvent(
                                     result.loan().getCustomerId(), "LOAN_CREATED",
                                     Map.of(
                                             "eventType", "LOAN_CREATED",
@@ -74,8 +75,7 @@ public class LoanServiceImpl implements LoanService {
 
     /**
      * Atomically creates loan + installments within a single transaction.
-     * Both succeed or both fail together.
-     *  Ensure entire operation is atomic, the loan creation and installment creation are in the same transaction
+     *  It Basically ensures the entire operation is atomic, the loan creation and installment creation are in the same transaction
      */
 
     private Mono<CreateLoanResult> createLoanAtomically( CreateLoanRequest request,  String idempotencyKey) {
@@ -174,7 +174,7 @@ public class LoanServiceImpl implements LoanService {
                             .flatMap(savedRepayment -> loanRepository.save(loan).thenReturn(savedRepayment))
                             .as(transactionalOperator::transactional)
                             .map(LoanMapper::toRepaymentResponse)
-                            .doOnNext(r -> publishEvent(loan.getCustomerId(), repaymentEventType, Map.of(
+                            .doOnNext(r -> utilities.publishEvent(loan.getCustomerId(), repaymentEventType, Map.of(
                                     "eventType", repaymentEventType,
                                     "loanId", loan.getId(),
                                     "customerId", loan.getCustomerId(),
@@ -201,7 +201,7 @@ public class LoanServiceImpl implements LoanService {
                     return loanRepository.save(loan).as(transactionalOperator::transactional);
                 })
                 .flatMap(this::getLoanInstallments)
-                .doOnNext(response -> publishEvent(response.customerId(), "LOAN_CANCELLED",
+                .doOnNext(response -> utilities.publishEvent(response.customerId(), "LOAN_CANCELLED",
                         Map.of(
                                 "eventType", "LOAN_CANCELLED",
                                 "loanId", response.id(),
@@ -238,14 +238,7 @@ public class LoanServiceImpl implements LoanService {
                 .flatMap(installmentRepository::save)
                 .then();
     }
-
-
-     private void publishEvent( UUID customerId,  String eventType,  Map<String, Object> payload) {
-         eventPublisher.publishLoanEvent(customerId, payload)
-                 .doOnSuccess(v -> log.debug("{} event published for customerId={}", eventType, customerId))
-                 .doOnError(err -> log.error("Failed to publish {} event for customerId={}", eventType, customerId, err))
-                 .subscribe();
-     }
+    
 
      private Mono<LoanResponse> getLoanInstallments( Loan loan) {
          return installmentRepository.findByLoanIdOrderByInstallmentNumber(loan.getId())
