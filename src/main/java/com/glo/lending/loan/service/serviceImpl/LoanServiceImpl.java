@@ -59,10 +59,8 @@ public class LoanServiceImpl implements LoanService {
                     }
 
                     // After transaction commits, publish events asynchronously
-                    return getLoanInstallments(result.loan())
-                            .doOnNext(response -> publishEvent(
-                                    result.loan().getCustomerId(),
-                                    "LOAN_CREATED",
+                    return getLoanInstallments(result.loan()).doOnNext(response -> publishEvent(
+                                    result.loan().getCustomerId(), "LOAN_CREATED",
                                     Map.of(
                                             "eventType", "LOAN_CREATED",
                                             "loanId", result.loan().getId(),
@@ -77,7 +75,9 @@ public class LoanServiceImpl implements LoanService {
     /**
      * Atomically creates loan + installments within a single transaction.
      * Both succeed or both fail together.
+     *  Ensure entire operation is atomic, the loan creation and installment creation are in the same transaction
      */
+
     private Mono<CreateLoanResult> createLoanAtomically( CreateLoanRequest request,  String idempotencyKey) {
         return createLoanWithIdempotencyProtection(request, idempotencyKey)
                 .flatMap(result -> {
@@ -185,13 +185,6 @@ public class LoanServiceImpl implements LoanService {
     }
 
 
-    private void publishEvent( UUID customerId,  String eventType,  Map<String, Object> payload) {
-        eventPublisher.publishLoanEvent(customerId, payload)
-                .doOnSuccess(v -> log.debug("{} event published for customerId={}", eventType, customerId))
-                .doOnError(err -> log.error("Failed to publish {} event for customerId={}", eventType, customerId, err))
-                .subscribe();
-    }
-
     // Cancels an OPEN loan, updates its state, and publishes a LOAN_CANCELLED event. Only loans in OPEN state can be cancelled.
     @Override
     public Mono<LoanResponse> cancelLoan( UUID loanId) {
@@ -217,11 +210,6 @@ public class LoanServiceImpl implements LoanService {
                 ));
     }
 
-    private Mono<LoanResponse> getLoanInstallments( Loan loan) {
-        return installmentRepository.findByLoanIdOrderByInstallmentNumber(loan.getId())
-                .collectList()
-                .map(installments -> LoanMapper.toResponse(loan, installments));
-    }
 
     // Calculate and create loan installments with proper rounding for the last installment
     private Mono<Void> createInstallments( Loan loan) {
@@ -250,6 +238,20 @@ public class LoanServiceImpl implements LoanService {
                 .flatMap(installmentRepository::save)
                 .then();
     }
+
+
+     private void publishEvent( UUID customerId,  String eventType,  Map<String, Object> payload) {
+         eventPublisher.publishLoanEvent(customerId, payload)
+                 .doOnSuccess(v -> log.debug("{} event published for customerId={}", eventType, customerId))
+                 .doOnError(err -> log.error("Failed to publish {} event for customerId={}", eventType, customerId, err))
+                 .subscribe();
+     }
+
+     private Mono<LoanResponse> getLoanInstallments( Loan loan) {
+         return installmentRepository.findByLoanIdOrderByInstallmentNumber(loan.getId())
+                 .collectList()
+                 .map(installments -> LoanMapper.toResponse(loan, installments));
+     }
 
 
     private LocalDate calculateDueDate( int tenureValue,  String tenureType) {
