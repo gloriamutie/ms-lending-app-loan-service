@@ -37,25 +37,31 @@ public class LoanController {
     }
 
     @GetMapping("/{loanId}")
-    public Mono<ResponseEntity<LoanResponse>> getLoan(@PathVariable final UUID loanId) {
+    public Mono<ResponseEntity<LoanResponse>> getLoan(@PathVariable  UUID loanId) {
         log.info("GET /api/v1/loans/{}", loanId);
         return loanService.getLoanById(loanId).map(r -> ResponseEntity.ok().body(r));
     }
 
     @GetMapping("/customer/{customerId}")
-    public Mono<ResponseEntity<Flux<LoanResponse>>> getLoansByCustomer(@PathVariable final UUID customerId) {
+    public Mono<ResponseEntity<Flux<LoanResponse>>> getLoansByCustomer(@PathVariable  UUID customerId) {
         log.info("GET /api/v1/loans/customer/{}", customerId);
         return Mono.just(ResponseEntity.ok(loanService.getLoansByCustomerId(customerId)));
     }
 
     @PostMapping("/repayments")
-    public Mono<ResponseEntity<RepaymentResponse>> makeRepayment(@Valid @RequestBody final RepaymentRequest request) {
+    public Mono<ResponseEntity<RepaymentResponse>> makeRepayment(@Valid @RequestBody  RepaymentRequest request) {
         log.info("POST /api/v1/loans/repayments - loanId={}", request.getLoanId());
         return loanService.makeRepayment(request).map(r -> ResponseEntity.status(HttpStatus.CREATED).body(r));
     }
 
+    @PutMapping("/{loanId}/disburse")
+    public Mono<ResponseEntity<LoanResponse>> disburseLoan(@PathVariable  UUID loanId) {
+        log.info("PUT /api/v1/loans/{}/disburse", loanId);
+        return loanService.disburseLoan(loanId).map(r -> ResponseEntity.ok().body(r));
+    }
+
     @PutMapping("/{loanId}/cancel")
-    public Mono<ResponseEntity<LoanResponse>> cancelLoan(@PathVariable final UUID loanId) {
+    public Mono<ResponseEntity<LoanResponse>> cancelLoan(@PathVariable  UUID loanId) {
         log.info("PUT /api/v1/loans/{}/cancel", loanId);
         return loanService.cancelLoan(loanId).map(r -> ResponseEntity.ok().body(r));
     }

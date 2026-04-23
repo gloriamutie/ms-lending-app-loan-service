@@ -1,6 +1,5 @@
 package com.glo.lending.loan.service;
 
-import com.glo.lending.loan.components.LoanEventPublisher;
 import com.glo.lending.loan.exception.LoanNotFoundException;
 import com.glo.lending.loan.model.dto.CreateLoanRequest;
 import com.glo.lending.loan.model.dto.RepaymentRequest;
@@ -10,6 +9,7 @@ import com.glo.lending.loan.repository.entities.Loan;
 import com.glo.lending.loan.repository.entities.LoanRepayment;
 import com.glo.lending.loan.repository.repo.*;
 import com.glo.lending.loan.service.serviceImpl.LoanServiceImpl;
+import com.glo.lending.loan.utils.Utilities;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,9 +41,7 @@ class LoanServiceTest {
     @Mock private LoanRepository loanRepository;
     @Mock private LoanInstallmentRepository installmentRepository;
     @Mock private LoanRepaymentRepository repaymentRepository;
-    @Mock private LoanFeeRepository loanFeeRepository;
-    @Mock private BillingCycleRepository billingCycleRepository;
-    @Mock private LoanEventPublisher eventPublisher;
+    @Mock private Utilities utilities;
     @Mock private TransactionalOperator transactionalOperator;
 
     @InjectMocks private LoanServiceImpl loanService;
@@ -103,7 +101,7 @@ class LoanServiceTest {
                     .outstandingBalance(request.getPrincipalAmount())
                     .totalFees(BigDecimal.ZERO)
                     .loanType(LoanType.LUMP_SUM)
-                    .state(LoanState.OPEN)
+                    .state(LoanState.PENDING_DISBURSEMENT)
                     .originationDate(LocalDate.now())
                     .dueDate(LocalDate.now().plusDays(30))
                     .tenureValue(30)
@@ -115,7 +113,7 @@ class LoanServiceTest {
 
             when(loanRepository.findByIdempotencyKey("IDEM-001")).thenReturn(Mono.empty());
             when(loanRepository.save(any(Loan.class))).thenReturn(Mono.just(savedLoan));
-            when(eventPublisher.publishLoanEvent(any(), any())).thenReturn(Mono.empty());
+            when(utilities.publishEventReactive(any(), any(), any())).thenReturn(Mono.empty());
             when(installmentRepository.findByLoanIdOrderByInstallmentNumber(loanId)).thenReturn(Flux.empty());
 
             // When & Then
@@ -149,7 +147,7 @@ class LoanServiceTest {
                     .verifyComplete();
 
             verify(loanRepository, never()).save(any());
-            verify(eventPublisher, never()).publishLoanEvent(any(), any());
+            verify(utilities, never()).publishEventReactive(any(), any(), any());
         }
     }
 
@@ -224,7 +222,7 @@ class LoanServiceTest {
             when(loanRepository.findById(loanId)).thenReturn(Mono.just(loan));
             when(repaymentRepository.save(any(LoanRepayment.class))).thenReturn(Mono.just(repayment));
             when(loanRepository.save(any(Loan.class))).thenReturn(Mono.just(loan));
-            when(eventPublisher.publishLoanEvent(any(), any())).thenReturn(Mono.empty());
+            when(utilities.publishEventReactive(any(), any(), any())).thenReturn(Mono.empty());
 
             // When & Then
             StepVerifier.create(loanService.makeRepayment(request))
@@ -258,7 +256,7 @@ class LoanServiceTest {
                 assertEquals(LoanState.CLOSED, saved.getState());
                 return Mono.just(saved);
             });
-            when(eventPublisher.publishLoanEvent(any(), any())).thenReturn(Mono.empty());
+            when(utilities.publishEventReactive(any(), any(), any())).thenReturn(Mono.empty());
 
             // When & Then
             StepVerifier.create(loanService.makeRepayment(request))
@@ -310,7 +308,7 @@ class LoanServiceTest {
             // Given
             when(loanRepository.findById(loanId)).thenReturn(Mono.just(loan));
             when(loanRepository.save(any(Loan.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-            when(eventPublisher.publishLoanEvent(any(), any())).thenReturn(Mono.empty());
+            when(utilities.publishEventReactive(any(), any(), any())).thenReturn(Mono.empty());
             when(installmentRepository.findByLoanIdOrderByInstallmentNumber(loanId)).thenReturn(Flux.empty());
 
             // When & Then

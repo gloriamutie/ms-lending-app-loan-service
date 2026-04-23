@@ -16,7 +16,7 @@ public final class LoanMapper {
                 loan.getLoanType(), loan.getState(), loan.getOriginationDate(), loan.getDueDate(),
                 loan.getTenureValue(), loan.getTenureType(),
                 installments.stream().map(LoanMapper::toInstallmentResponse).toList(),
-                loan.getCreatedAt(), loan.getUpdatedAt());
+                loan.getDisbursedAt(), loan.getCreatedAt(), loan.getUpdatedAt());
     }
 
     public static InstallmentResponse toInstallmentResponse( LoanInstallment i) {

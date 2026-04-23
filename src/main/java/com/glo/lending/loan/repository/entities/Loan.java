@@ -52,6 +52,8 @@ public class Loan {
     private String tenureType;
     @Column("idempotency_key")
     private String idempotencyKey;
+    @Column("disbursed_at")
+    private LocalDateTime disbursedAt;
     @CreatedDate
     @Column("created_at")
     private LocalDateTime createdAt;

@@ -47,12 +47,12 @@ public class LoanServiceImpl implements LoanService {
      // Creates and persists a new loan, then publishes a LOAN_CREATED event.
     @Override
     public Mono<LoanResponse> createLoan( CreateLoanRequest request,  String idempotencyKeyHeader) {
-        final String idempotencyKey = idempotencyKeyHeader.trim();
+         String idempotencyKey = idempotencyKeyHeader.trim();
         log.info("Creating loan: customerId={}, idempotencyKey={}", request.getCustomerId(), idempotencyKey);
 
         return loanRepository.findByIdempotencyKey(idempotencyKey)
                 .map(existingLoan -> new CreateLoanResult(existingLoan, false))
-                .switchIfEmpty(Mono.defer(() -> createLoanAtomically(request, idempotencyKey)))
+                .switchIfEmpty(createLoanAtomically(request, idempotencyKey))
                 .flatMap(result -> {
                     if (!result.created()) {
                         log.info("Idempotent replay detected. Returning existing loan for key={}", idempotencyKey);
@@ -72,6 +72,37 @@ public class LoanServiceImpl implements LoanService {
                                     )
                             ).thenReturn(response));
                 });
+    }
+
+
+    @Override
+    public Mono<LoanResponse> disburseLoan(final UUID loanId) {
+        log.info("Disbursing loan: {}", loanId);
+        return loanRepository.findById(loanId).switchIfEmpty(Mono.error(new LoanNotFoundException(loanId)))
+                .flatMap(loan -> {
+                    if (loan.getState() != LoanState.PENDING_DISBURSEMENT) {
+                        return Mono.error(new IllegalStateException(
+                                "Only PENDING_DISBURSEMENT loans can be disbursed. Current state: " + loan.getState()));
+                    }
+
+                    loan.setState(LoanState.OPEN);
+                    loan.setDisbursedAt(LocalDateTime.now());
+                    loan.setUpdatedAt(LocalDateTime.now());
+
+                    return loanRepository.save(loan).as(transactionalOperator::transactional);
+                })
+                .flatMap(this::getLoanInstallments)
+                .flatMap(response -> utilities.publishEventReactive(
+                        response.customerId(), "LOAN_DISBURSED",
+                        Map.of(
+                                "eventType", "LOAN_DISBURSED",
+                                "loanId", response.id(),
+                                "customerId", response.customerId(),
+                                "loanAmount", response.principalAmount(),
+                                "dueDate", response.dueDate().toString()
+                        )
+                ).thenReturn(response))
+                .doOnSuccess(r -> log.info("Loan disbursed: id={}, amount={}", r.id(), r.principalAmount()));
     }
 
     /**
@@ -105,7 +136,7 @@ public class LoanServiceImpl implements LoanService {
                 .outstandingBalance(request.getPrincipalAmount())
                 .totalFees(BigDecimal.ZERO)
                 .loanType(request.getLoanType())
-                .state(LoanState.OPEN)
+                .state(LoanState.PENDING_DISBURSEMENT)
                 .originationDate(LocalDate.now())
                 .dueDate(calculateDueDate(request.getTenureValue(), request.getTenureType()))
                 .billingCycleId(request.getBillingCycleId())
@@ -147,7 +178,8 @@ public class LoanServiceImpl implements LoanService {
         return loanRepository.findById(request.getLoanId())
                 .switchIfEmpty(Mono.error(new LoanNotFoundException(request.getLoanId())))
                 .flatMap(loan -> {
-                    if (loan.getState() == LoanState.CLOSED || loan.getState() == LoanState.CANCELLED) {
+                    if (loan.getState() == LoanState.CLOSED || loan.getState() == LoanState.CANCELLED
+                            || loan.getState() == LoanState.PENDING_DISBURSEMENT) {
                         return Mono.error(new IllegalStateException("Cannot repay a " + loan.getState() + " loan"));
                     }
 

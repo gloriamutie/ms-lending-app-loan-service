@@ -42,6 +42,7 @@ public record LoanResponse(
         Integer tenureValue,
         String tenureType,
         List<InstallmentResponse> installments,
+        LocalDateTime disbursedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
